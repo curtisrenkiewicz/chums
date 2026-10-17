@@ -43,7 +43,7 @@ final class ZenStage: Staged {
     private enum P {
         static let front = hex(0xFF8199), tip = hex(0xEE3D78), root = front
         static let collar = hex(0xFFC83A), collarWall = hex(0xF3911A), collarTop = lift(collar, 0.18)
-        static let brow = hex(0xC06E8E), browWall = saturate(deepen(brow, 0.16), 1.15)
+        static let brow = hex(0xC06E8E), browWall = saturate(deepen(brow, 0.2), 1.25)
         static let iris = hex(0x2C3A38), blush = hex(0xFF5C84)
         static let rim = hex(0xE8587A), shade = hex(0xF0607F), tipRim = saturate(deepen(tip, 0.22), 1.2)
         static let wall = deepen(front, 0.22)
@@ -562,8 +562,12 @@ final class ZenStage: Staged {
             leaf.addCurve(to: CGPoint(x: w * 0.4, y: -10), control1: CGPoint(x: w * 0.5, y: -L * 0.9), control2: CGPoint(x: w * 0.62, y: -L * 0.6))
             leaf.closeSubpath()
             var c = g; c.translateBy(x: rootX, y: rootY); c.rotate(by: .radians(ang))
-            let ox = 1.2 - yaw.x * 2.5, oy = 2.2, ca = cos(-ang), sa = sin(-ang)
-            var wall = c; wall.translateBy(x: ox * ca - oy * sa, y: ox * sa + oy * ca)
+            // The rim must only ever read as a sliver down one side, never as a second leaf: shift the copy straight across
+            // the finger, clip it to that side, and shorten it a touch from the root so its point stays inside the real tip.
+            let ox = 1.2 - yaw.x * 2.5, oy = 2.2, ca = cos(-ang), sa = sin(-ang), dx = ox * ca - oy * sa
+            var wall = c
+            wall.clip(to: Path(CGRect(x: dx > 0 ? 0 : -w, y: -L - 4, width: w, height: L + 24)))
+            wall.translateBy(x: dx, y: 0.6); wall.scaleBy(x: 1, y: 0.92)
             let rg = Gradient(stops: [.init(color: Self.col(P.rim), location: 0), .init(color: Self.col(P.rim), location: 0.5),
                                       .init(color: Self.col(P.tipRim), location: 1)])
             wall.fill(leaf, with: .linearGradient(rg, startPoint: .zero, endPoint: CGPoint(x: 0, y: -L)))
@@ -577,11 +581,11 @@ final class ZenStage: Staged {
         let fx = hx + yaw.x * 12, fy = hy + 4 + pitch.x * 8, sx = 1 - 0.28 * abs(yaw.x)
         func X(_ x: Double) -> Double { fx + x * sx - yaw.x * abs(x) * 0.12 * (x < 0 ? -1 : 1) }
 
-        // blush
+        // blush: below and just outside the eyes, never tucked under them
         let bl = clamp(blush.x, 0.6, 1.6)
         for k in [-1.0, 1.0] {
-            let rx = 9.5 * sx * (0.9 + 0.12 * bl), ry = 5.8 * (0.9 + 0.12 * bl)
-            g.fill(Path(ellipseIn: CGRect(x: X(k * 34) - rx, y: fy + 9 - ry, width: 2 * rx, height: 2 * ry)), with: .color(Self.col(P.blush, 0.72 * min(1, bl))))
+            let rx = 8.6 * sx * (0.9 + 0.12 * bl), ry = 5 * (0.9 + 0.12 * bl)
+            g.fill(Path(ellipseIn: CGRect(x: X(k * 36) - rx, y: fy + 13.5 - ry, width: 2 * rx, height: 2 * ry)), with: .color(Self.col(P.blush, 0.72 * min(1, bl))))
         }
 
         // eyes
@@ -634,19 +638,19 @@ final class ZenStage: Staged {
             }
         }
 
-        // brows: the main actors. Slightly bowed bars with their own little wall.
+        // brows: the main actors. Built like the head: one fat, slightly bowed capsule with a flat front face, and a thin
+        // crisp rim of its side wall showing along the bottom (down and a touch right, same as the head's rim).
         for k in [-1.0, 1.0] {
             let raise = brow.x + (k > 0 ? browR.x : 0) + (petting ? 0.3 : 0) + browPop * 0.35
             let by = fy - 26 - raise * 6.5 + (s.eyes == .happy ? -2 : 0)
             var b = g
             b.translateBy(x: X(k * 21), y: by); b.rotate(by: .radians(k * browA.x * 0.42 + (k > 0 ? -browR.x * 0.15 : 0)))
-            func bar(_ dy: Double) -> Path {
-                var p = Path(); p.move(to: CGPoint(x: -9 * sx, y: 1.6 + dy))
-                p.addQuadCurve(to: CGPoint(x: 9 * sx, y: 1.6 + dy), control: CGPoint(x: 0, y: -2.6 + dy)); return p
-            }
-            let style = StrokeStyle(lineWidth: 7, lineCap: .round)
-            b.stroke(bar(1.8), with: .color(Self.col(P.browWall)), style: style)
-            b.stroke(bar(0), with: .color(Self.col(P.brow)), style: style)
+            var bar = Path(); bar.move(to: CGPoint(x: -8.5 * sx, y: 1.4))
+            bar.addQuadCurve(to: CGPoint(x: 8.5 * sx, y: 1.4), control: CGPoint(x: 0, y: -2.2))
+            let style = StrokeStyle(lineWidth: 8.5, lineCap: .round)
+            var rim = b; rim.translateBy(x: 0.5, y: 1.7)
+            rim.stroke(bar, with: .color(Self.col(P.browWall)), style: style)
+            b.stroke(bar, with: .color(Self.col(P.brow)), style: style)
         }
 
         // mouth: a hair off-center and tilted, the way the Tolans wear it
