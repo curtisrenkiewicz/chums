@@ -61,7 +61,7 @@ final class ZenStage: Staged {
     // ends up (worried), − down (cross) · browR: extra raise on the right brow · lid: upper lid closed · spread, droop,
     // stiff: the leaves
     private enum Eyes { case open, happy, closed, spiral }
-    private enum Arm { case hang, chin, conduct, gesture, wave, knock, clasp, cross, flop }
+    private enum Arm { case hang, chin, conduct, out, wave, knock, clasp, cross, flop }
     private struct Spec {
         var yaw = 0.0, pitch = 0.0, tilt = 0.0, lean = 1.0, brow = 0.0, browA = 0.0, browR = 0.0
         var lookX = 0.0, lookY = 0.0, lid = 0.0, spread = 1.0, droop = 0.0, stiff = 0.0, blush = 1.0
@@ -74,7 +74,7 @@ final class ZenStage: Staged {
         case .thinking: return Spec(yaw: 0.3, pitch: -0.25, tilt: -0.1, brow: 0.15, browR: 0.65, lookX: 0.85, lookY: -0.9, spread: 0.92, mouth: "hmm", R: .chin)
         case .working: return Spec(yaw: -0.06, pitch: 0.32, brow: -0.3, browA: -0.6, lookY: 0.55, lid: 0.18, spread: 0.95, mouth: "focus")
         case .subagents: return Spec(pitch: -0.05, brow: 0.45, R: .conduct)
-        case .speaking: return Spec(brow: 0.25, mouth: "talk", R: .gesture)
+        case .speaking: return Spec(brow: 0.25, mouth: "talk")                // the arms gesture per phrase: see planGesture
         case .done: return Spec(brow: 0.7, spread: 1.35, blush: 1.3, eyes: .happy, mouth: "D", R: .wave)
         case .needs: return Spec(lean: 1.12, brow: 0.5, browA: 0.75, mouth: "o", R: .knock)
         case .approval: return Spec(pitch: -0.08, tilt: 0.08, lean: 1.06, brow: 0.6, browA: 0.65, lookY: -0.3, blush: 1.25, R: .clasp, L: .clasp)
@@ -174,7 +174,7 @@ final class ZenStage: Staged {
             sq.v += 1.4
             for i in hair.indices { hair[i].v += rnd(-5, 5) }
         }
-        spawn = 0; phrase = 0; sylT = 0; knockT = 0                      // bits in flight finish their arc
+        spawn = 0; phrase = 0; sylT = 0; knockT = 0; talkArm = nil       // bits in flight finish their arc
     }
 
     func step(_ r: Rig, _ dt0: Double) {
@@ -292,7 +292,7 @@ final class ZenStage: Staged {
 
         // hands chase their pose on loose springs, so they overshoot and settle
         for (i, sg) in [(0, 1.0), (1, -1.0)] {
-            let pose = i == 0 ? s.R : s.L, goal = handGoal(pose, sg)
+            let pose = armPose(st, s, i), goal = handGoal(pose, sg)
             let k = 110.0, d = 2 * sqrt(k) * 0.48
             handV[i] += ((goal - hand[i]) * k - handV[i] * d) * dt; hand[i] += handV[i] * dt
             // resting arms are short enough that the hand lands in frame; raised arms reach their full length
@@ -327,12 +327,29 @@ final class ZenStage: Staged {
     private var squinting = false
 
     private func nextSyllable() {
-        if phrase <= 0 { vis = "rest"; sylT = rnd(0.3, 0.85); phrase = Int.random(in: 4...12); browPop = 1; return }
+        if phrase <= 0 { vis = "rest"; sylT = rnd(0.3, 0.85); phrase = Int.random(in: 4...12); browPop = 1; planGesture(); return }
         var v = vis
         while v == vis { v = Self.syllables.randomElement()! }
         vis = v; sylT = rnd(0.085, 0.185); phrase -= 1
         if (Self.visemes[v]?.open ?? 0) > 0.5 { nod.v += 0.9 }
     }
+    /// Talking arms, read off Tolan's pose 01: a gesture is a beat that lands with a new phrase and holds through it,
+    /// never a bob per syllable. One arm at a time, usually the other one from last time, swung out from the shoulder as
+    /// one straight piece; often neither, both just hanging. Small swings are common, big ones rare. It holds at least a
+    /// second, so brief gaps in the voice don't flick it about.
+    private func planGesture() {
+        if t - gestAt < 1 { return }
+        gestAt = t
+        if rnd(0, 1) < 0.35 { talkArm = nil; return }
+        let side = lastArm < 0 || rnd(0, 1) < 0.7 ? (lastArm == 0 ? 1 : 0) : lastArm
+        lastArm = side
+        talkArm = (side, 0.9 + pow(rnd(0, 1), 2) * 0.55)              // radians out from straight down (hanging is about 0.46)
+    }
+    private func armPose(_ st: ChumsState, _ s: Spec, _ i: Int) -> Arm {
+        st == .speaking ? (talkArm?.side == i ? .out : .hang) : (i == 0 ? s.R : s.L)
+    }
+    private var talkArm: (side: Int, a: Double)? = nil, lastArm = -1, gestAt = -9.0
+
     private func knockBeat() -> Double {
         let ph = knockT
         if ph < 0.18 { return sin(ph / 0.18 * .pi) }
@@ -351,7 +368,9 @@ final class ZenStage: Staged {
         switch pose {
         case .chin: return P2(c + 12, 176)
         case .conduct: return P2(c + 52, 158 + 14 * sin(t * 3))
-        case .gesture: return P2(c + 46 + 6 * sin(t * 1.7), 206 - 22 * clamp(mopen.x, 0, 1))
+        case .out:                                                        // swung out from the shoulder, straight
+            let a = talkArm?.a ?? 0.9, L = Self.upper + Self.lower - 0.5
+            return P2(c + sway() * 0.5 + sg * (33 + L * sin(a)), Self.shoulderY + L * cos(a))
         case .wave: let a = 0.5 * sin(t * 7); return P2(c + 60 + 30 * sin(a), 118 + 8 * (1 - cos(a)))   // swings from the elbow
         case .knock: return P2(c + 32, 156 - 6 * knockBeat())
         case .clasp: return P2(c + sg * 8, 204 + 2 * sin(t * 2))
