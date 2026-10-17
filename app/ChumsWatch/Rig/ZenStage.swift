@@ -8,8 +8,8 @@ import SwiftUI
 /// tongue → teeth).
 ///   idle: a slow layered roll, eyes dart and the head follows, a content squint now and then, and sometimes the mouth
 ///   eases into a big open smile · listening: leans in, brows up, a small O that opens with your voice · thinking: eyes
-///   up and to the right, one brow up, a hand to the chin, three dots · working: head down, typing on a little laptop,
-///   a nod at each tool call · subagents: three sprouts orbit its head and it watches them · speaking: syllables (A E O U
+///   up and to the right, one brow up, a hand to the chin, three dots · working: head down, scribbling in a little journal,
+///   the page turning at each tool call · subagents: three sprouts orbit its head and it watches them · speaking: syllables (A E O U
 ///   M) while the voice plays, a hand gesturing with it · done: happy eyes, the D smile with teeth, a wave, leaves fly
 ///   · needs you: worried brows, a knock on the glass · approval: shrinks up out of the card's way, looks at you
 ///   hopefully, hands clasped · blocked: cross brows, a grimace, arms crossed, the leaves stiffen and shiver · dizzy:
@@ -141,6 +141,7 @@ final class ZenStage: Staged {
     private var gaze: P2? = nil, gazeT = 0.0, taps: [Double] = []
     private var fastFor = 0.0, crownIdle = 9.0, nextTool = 0.8, knockT = 0.0
     private var prevHX = 99.0, prevVX = 0.0
+    private var ink = 0.0, flipT = 0.0                         // the journal: how far the writing has got, a page turning
     private var away = S(0), down = S(0)                      // shrunk up out of the approval card's way; lowered for the talk bar
     private var state: ChumsState = .idle, started = false
     private var t = 0.0
@@ -234,8 +235,14 @@ final class ZenStage: Staged {
         nextTool -= dt
         if nextTool <= 0 && (!r.worlds.queue.isEmpty || state == .working), let c = r.worlds.nextEvent(r) {
             nextTool = r.worlds.queue.isEmpty ? rnd(1.4, 2.4) : 0.5
-            if c.kind != .stop { nod.v += 3.2; blinkT = 0.16; for i in hair.indices { hair[i].v += rnd(-2.4, 5.6) } }
+            if c.kind != .stop {
+                nod.v += 3.2; blinkT = 0.16; for i in hair.indices { hair[i].v += rnd(-2.4, 5.6) }
+                if state == .working { flipT = 0.4 }
+            }
         }
+        // the journal: ink runs along the lines; a full page (or a tool call) turns over
+        if st == .working { ink += flipT > 0 ? 0 : dt * 0.55; if ink >= 4 && flipT <= 0 { flipT = 0.4 } }
+        if flipT > 0 { flipT -= dt; if flipT <= 0 { flipT = 0; ink = 0 } }
 
         // the pose's springs: eyes fast, the head slower and looser
         let bl = petting || squint ? 1.5 : s.blush
@@ -328,7 +335,7 @@ final class ZenStage: Staged {
         let c = 99.0
         switch pose {
         case .chin: return P2(c + 12, 176)
-        case .type: return P2(c + sg * 23, 208 - 4 * max(0, sin(t * 13 + (sg > 0 ? 0 : 1.6))))   // mitts tapping over the lid
+        case .type: return sg < 0 ? P2(c - 47, 226) : pen() + P2(8, -12)   // the left mitt holds the journal, the right one writes
         case .conduct: return P2(c + 52, 158 + 14 * sin(t * 3))
         case .gesture: return P2(c + 46 + 6 * sin(t * 1.7), 206 - 22 * clamp(mopen.x, 0, 1))
         case .wave: let a = 0.5 * sin(t * 7); return P2(c + 60 + 30 * sin(a), 118 + 8 * (1 - cos(a)))   // swings from the elbow
@@ -419,8 +426,9 @@ final class ZenStage: Staged {
         h.fill(superellipse(hx, hy, Self.headW, Self.headH, 2.15), with: .color(Self.col(P.front)))   // the face: one flat color
         drawFace(h, hx, hy, s, petting)
 
-        if s.R == .type { drawLaptop(g) }
+        if s.R == .type { drawJournal(g) }
         for i in [1, 0] where front[i] { drawArm(g, i, torsoTop) }
+        if s.R == .type { drawPencil(g) }
         if st == .subagents { drawSprouts(g, back: false) }
         drawBits(ctx, st)
     }
@@ -685,18 +693,69 @@ final class ZenStage: Staged {
     }
     private func smoothstep(_ a: Double, _ b: Double, _ v: Double) -> Double { let x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x) }
 
-    /// Seen from behind: a flat lid in the collar's color with its own thin rim and a leaf on the back.
-    private func drawLaptop(_ g: GraphicsContext) {
-        let c = 99 + sway() * 0.6, y = 210.0, w = 88.0, h = 60.0
+    // The journal: an open notebook held up to the chest, a terracotta cover with its own thin rim, cream pages that
+    // only deepen toward the spine (light subtracts), scribbled lines filling in under the pencil.
+    private var journalC: Double { 99 + sway() * 0.6 }
+    private static let journalY = 200.0, pageW = 38.0, pageH = 36.0
+    /// Where the pencil's tip is on the right-hand page.
+    private func pen() -> P2 {
+        let line = min(3, floor(ink)), k = ink - floor(ink)
+        return P2(journalC + 6 + k * (Self.pageW - 12), Self.journalY + 9 + line * 7 + sin(t * 22) * 0.8)
+    }
+    private func drawJournal(_ g: GraphicsContext) {
+        let c = journalC, y = Self.journalY, pw = Self.pageW, ph = Self.pageH
+        let cover = RGB(224, 122, 79), coverWall = RGB(182, 82, 52), page = RGB(255, 246, 230), spine = RGB(236, 214, 186)
+        let inkColor = Self.col(Self.mix(P.iris, page, 0.35))
         var sh = g; sh.addFilter(.blur(radius: 1.5))
-        sh.fill(Path(roundedRect: CGRect(x: c - w / 2 + 3, y: y + 4, width: w, height: h), cornerRadius: 9), with: .color(Self.col(P.shade, 0.55)))
-        g.fill(Path(roundedRect: CGRect(x: c - w / 2 + 1.5, y: y + 3, width: w, height: h), cornerRadius: 9), with: .color(Self.col(P.collarWall)))
-        g.fill(Path(roundedRect: CGRect(x: c - w / 2, y: y, width: w, height: h), cornerRadius: 9), with: .color(Self.col(P.collar)))
-        var l = g; l.translateBy(x: c, y: y + 17); l.rotate(by: .radians(0.5))
-        var leaf = Path()
-        leaf.move(to: CGPoint(x: 0, y: -7)); leaf.addQuadCurve(to: CGPoint(x: 0, y: 7), control: CGPoint(x: 6, y: 0))
-        leaf.addQuadCurve(to: CGPoint(x: 0, y: -7), control: CGPoint(x: -6, y: 0))
-        l.fill(leaf, with: .color(Self.col(P.collarWall)))
+        sh.fill(Path(roundedRect: CGRect(x: c - pw - 4 + 3, y: y - 3 + 4, width: 2 * pw + 8, height: ph + 8), cornerRadius: 6), with: .color(Self.col(P.shade, 0.55)))
+        g.fill(Path(roundedRect: CGRect(x: c - pw - 4 + 1.2, y: y - 3 + 2.5, width: 2 * pw + 8, height: ph + 8), cornerRadius: 6), with: .color(Self.col(coverWall)))
+        g.fill(Path(roundedRect: CGRect(x: c - pw - 4, y: y - 3, width: 2 * pw + 8, height: ph + 8), cornerRadius: 6), with: .color(Self.col(cover)))
+        func sheet(_ dir: Double) -> Path {                     // a page that bows a little toward its outer edge
+            var p = Path()
+            p.move(to: CGPoint(x: c, y: y + 1.5))
+            p.addQuadCurve(to: CGPoint(x: c + dir * pw, y: y), control: CGPoint(x: c + dir * pw * 0.5, y: y - 1.5))
+            p.addLine(to: CGPoint(x: c + dir * pw, y: y + ph))
+            p.addQuadCurve(to: CGPoint(x: c, y: y + ph + 1.5), control: CGPoint(x: c + dir * pw * 0.5, y: y + ph - 1.5))
+            p.closeSubpath(); return p
+        }
+        func shading(_ dir: Double) -> GraphicsContext.Shading {
+            .linearGradient(Gradient(stops: [.init(color: Self.col(spine), location: 0), .init(color: Self.col(page), location: 0.22),
+                                              .init(color: Self.col(page), location: 1)]),
+                            startPoint: CGPoint(x: c, y: 0), endPoint: CGPoint(x: c + dir * pw, y: 0))
+        }
+        g.fill(sheet(-1), with: shading(-1)); g.fill(sheet(1), with: shading(1))
+        // what's written: the left page is full, the right one fills in under the pencil
+        func scrib(_ x0: Double, _ x1: Double, _ yy: Double, _ seed: Double) {
+            var p = Path(); p.move(to: CGPoint(x: x0, y: yy))
+            var x = x0
+            while x <= x1 { p.addLine(to: CGPoint(x: x, y: yy + sin(x * 1.3 + seed) * 0.9)); x += 2 }
+            g.stroke(p, with: .color(inkColor), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+        }
+        for l in 0..<4 { let d = Double(l); scrib(c - pw + 6, c - 6 - (l == 3 ? 12 : 0), y + 9 + d * 7, d * 2) }
+        let written = flipT > 0 ? 0 : ink
+        for l in 0..<4 {
+            let d = Double(l), k = clamp(written - d, 0, 1)
+            if k > 0.02 { scrib(c + 6, c + 6 + k * (pw - 12), y + 9 + d * 7, d * 3 + 1) }
+        }
+        // a tool call: the right page turns over onto the left
+        if flipT > 0 {
+            let u = 1 - flipT / 0.4
+            var f = g.faded(0.95); f.translateBy(x: c, y: 0); f.scaleBy(x: cos(u * .pi), y: 1); f.translateBy(x: -c, y: 0)
+            f.fill(sheet(1), with: shading(1))
+        }
+    }
+
+    /// The pencil, gripped in the right mitt: drawn over it, the tip on the page.
+    private func drawPencil(_ g: GraphicsContext) {
+        let tip = pen()
+        var c = g; c.translateBy(x: tip.x, y: tip.y); c.rotate(by: .radians(atan2(-20, 13)))
+        var lead = Path(); lead.move(to: .zero); lead.addLine(to: CGPoint(x: 4.5, y: -2.4)); lead.addLine(to: CGPoint(x: 4.5, y: 2.4)); lead.closeSubpath()
+        c.fill(lead, with: .color(Color(hex: 0x3A3A3A)))
+        var wood = Path(); wood.move(to: CGPoint(x: 2, y: -1.1)); wood.addLine(to: CGPoint(x: 6, y: -2.6)); wood.addLine(to: CGPoint(x: 6, y: 2.6)); wood.addLine(to: CGPoint(x: 2, y: 1.1)); wood.closeSubpath()
+        c.fill(wood, with: .color(Color(hex: 0xF7D9A8)))
+        c.fillRect(6, -2.6, 17, 5.2, Color(hex: 0xFFC83A))
+        c.fillRect(6, 0.9, 17, 1.7, Color(hex: 0xF3911A))              // its side, away from the light
+        c.fill(Path(roundedRect: CGRect(x: 23, y: -2.6, width: 4.5, height: 5.2), cornerSize: CGSize(width: 2, height: 2)), with: .color(Color(hex: 0xFF8FA3)))   // eraser
     }
 
     /// Little helpers orbiting the head: the ones on the far side of the orbit pass behind it.
