@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 /// Zen: a Tolan-style garden gremlin seen as a bust: a big flat pink head with a crown of leaf fingers that grow out of
 /// its own color, a fat yellow torus collar, a narrow body and thick capsule arms. Ported from its HTML playground
@@ -7,14 +8,15 @@ import SwiftUI
 /// read as a thick disc, and the mouth is one cavity whose layers arrive as it opens (flat red crescent → dark band and
 /// tongue → teeth).
 ///   idle: a slow layered roll, eyes dart and the head follows, a content squint now and then, and sometimes the mouth
-///   eases into a big open smile · listening: leans in, brows up, a small O that opens with your voice · thinking: eyes
+///   eases into a big open smile · listening: a curious head tilt, brows up, a small closed smile · thinking: eyes
 ///   up and to the right, one brow up, a hand to the chin, three dots · working: head down, eyes reading across a line in little
-///   hops, brows knit, the tip of its tongue out in concentration, a glance up at you at each tool call · subagents: three sprouts orbit its head and it watches them · speaking: syllables (A E O U
+///   hops, brows knit, lips pressed a touch lopsided, a glance up at you at each tool call · subagents: three sprouts orbit its head and it watches them · speaking: syllables (A E O U
 ///   M) while the voice plays, a hand gesturing with it · done: happy eyes, the D smile with teeth, a wave, leaves fly
 ///   · needs you: worried brows, a knock on the glass · approval: shrinks up out of the card's way, looks at you
 ///   hopefully, hands clasped · blocked: cross brows, a grimace, arms crossed, the leaves stiffen and shiver · dizzy:
 ///   spiral eyes, a wavy mouth, wobbling, arms limp · sleep: head down, leaves droop, a small round mouth breathing, z's
-///   tap: a squash and a blink, four quick ones annoy it · stroke: a happy squint · finger down: its eyes follow it ·
+///   tap: a squash and a blink, four quick ones annoy it · stroke: it hums a little tune, eyes shut (keep stroking and
+///   the phrases chain into a song) · finger down: its eyes follow it ·
 ///   crown: turns its head (fast, it gets dizzy) · shake: the leaves fly about
 final class ZenStage: Staged {
     static let shared = ZenStage()
@@ -68,9 +70,9 @@ final class ZenStage: Staged {
     private func spec(_ s: ChumsState) -> Spec {
         switch s {
         case .idle: return Spec()
-        case .listening: return Spec(pitch: -0.12, tilt: 0.13, lean: 1.07, brow: 0.6, browA: 0.15, lookY: -0.15, spread: 1.25, mouth: "o")
+        case .listening: return Spec(pitch: -0.1, tilt: 0.24, lean: 1.05, brow: 0.45, browA: 0.2, lookY: -0.12, spread: 1.15, mouth: "soft")
         case .thinking: return Spec(yaw: 0.3, pitch: -0.25, tilt: -0.1, brow: 0.15, browR: 0.65, lookX: 0.85, lookY: -0.9, spread: 0.92, mouth: "hmm", R: .chin)
-        case .working: return Spec(yaw: -0.06, pitch: 0.32, brow: -0.3, browA: -0.6, lookY: 0.55, lid: 0.32, spread: 0.95, mouth: "focus")
+        case .working: return Spec(yaw: -0.06, pitch: 0.32, brow: -0.3, browA: -0.6, lookY: 0.55, lid: 0.18, spread: 0.95, mouth: "focus")
         case .subagents: return Spec(pitch: -0.05, brow: 0.45, R: .conduct)
         case .speaking: return Spec(brow: 0.25, mouth: "talk", R: .gesture)
         case .done: return Spec(brow: 0.7, spread: 1.35, blush: 1.3, eyes: .happy, mouth: "D", R: .wave)
@@ -93,7 +95,9 @@ final class ZenStage: Staged {
         "o": Mouth(w: 3.4, open: 0.55, round: 1),
         "hmm": Mouth(w: 4.6, open: 0.05, smile: -0.4, tilt: 0.3),
         "flat": Mouth(w: 5, open: 0.05, smile: 0.1),
-        "focus": Mouth(w: 4.2, open: 0.04, smile: 0.25, tilt: -0.12),   // pressed together, the tongue tip out of the corner
+        "soft": Mouth(w: 5.6, open: 0.03, smile: 0.6, tilt: 0.08),      // listening: a small, attentive closed smile
+        "hum": Mouth(w: 5.4, open: 0, smile: 0.75, tilt: 0.05),          // lips closed, content: humming
+        "focus": Mouth(w: 4.4, open: 0.02, smile: -0.15, tilt: -0.16),   // pressed together and a touch lopsided: concentrating
         "D": Mouth(w: 9.5, open: 1, smile: 1, teeth: 1),
         "grit": Mouth(w: 7.5, open: 0.4, smile: -1.2, teeth: 1),
         "sleep": Mouth(w: 3.4, open: 0.32, round: 0.55, tilt: 0.15),
@@ -142,7 +146,8 @@ final class ZenStage: Staged {
     private var gaze: P2? = nil, gazeT = 0.0, taps: [Double] = []
     private var fastFor = 0.0, crownIdle = 9.0, nextTool = 0.8, knockT = 0.0
     private var prevHX = 99.0, prevVX = 0.0
-    private var upT = 0.0, tongue = S(0)                       // working: glancing up at a tool call; the tongue tip
+    private var upT = 0.0                                     // working: glancing up at a tool call
+    private var humT = 0.0, humCool = 0.0                     // the phrase being hummed; a breath before the next stroke's
     private var away = S(0), down = S(0)                      // shrunk up out of the approval card's way; lowered for the talk bar
     private var state: ChumsState = .idle, started = false
     private var t = 0.0
@@ -259,18 +264,19 @@ final class ZenStage: Staged {
             (\.lean, s.lean), (\.brow, glancing ? 0.35 : s.brow), (\.browA, glancing ? 0 : s.browA), (\.browR, s.browR), (\.lid, glancing ? 0 : s.lid),
             (\.spread, s.spread), (\.droop, s.droop), (\.stiff, s.stiff), (\.blush, bl)]
         for (v, tgt) in rest { self[keyPath: v].to(tgt, 90, 0.8, dt) }
-        tongue.to(st == .working && !glancing && !petting ? 1 : 0, 120, 0.7, dt)
 
         // mouth: fast springs while talking so syllables land; expressions ease over about half a second, like Tolan's
+        let wasHumming = humT > 0; humT -= dt
+        if wasHumming && humT <= 0 && petting { hum(r, chain: true) }   // still being petted: the next phrase
+        let humming = humT > 0
         var m: Mouth
         if st == .speaking { m = Self.visemes[vis] ?? Mouth() }
-        else { m = Self.mouths[petting || squint ? "grin" : beam ? "beam" : s.mouth] ?? Self.mouths["smile"]! }
+        else { m = Self.mouths[humming ? "hum" : petting || squint ? "grin" : beam ? "beam" : s.mouth] ?? Self.mouths["smile"]! }
         if st == .sleep { m.open += 0.14 * sin(t * 1.1) }                 // breathes in and out with the chest
-        if st == .listening { m.open += r.voice * 0.45 }
         let mk = st == .speaking ? 900.0 : 70, md = st == .speaking ? 0.8 : 0.95
         mw.to(m.w, mk, md, dt); mopen.to(m.open, mk, md, dt); mround.to(m.round, mk, md, dt)
         msmile.to(m.smile, mk, md, dt); mteeth.to(m.teeth, mk, md, dt); mtilt.to(m.tilt, mk, md, dt)
-        self.squinting = squint
+        self.squinting = squint || humming                                // humming with its eyes shut
 
         // the crown turns the head, then lets it settle back; turned fast for a second, dizzy
         crown.v += (-crown.x * 30 - crown.v * 6) * dt; crown.x = clamp(crown.x + crown.v * dt, -1.2, 1.2)
@@ -386,7 +392,16 @@ final class ZenStage: Staged {
         taps = taps.filter { t - $0 < 3 } + [t]
         if taps.count >= 4 && state != .sleep && state != .dizzy { taps = []; react = .blocked; reactT = 1.6 }
     }
-    func pet(_ r: Rig) { petT = 0.7 }
+    func pet(_ r: Rig) { petT = 0.7; hum(r) }
+
+    /// A stroke starts a little hummed phrase; one at a time, with a breath before the next stroke's. Not over its own
+    /// voice or the mic, and not dimmed.
+    private func hum(_ r: Rig, chain: Bool = false) {
+        if !chain && t < humCool { return }
+        if r.ao || state == .speaking || state == .listening { return }
+        let d = Hum.shared.play(chain: chain)
+        if d > 0 { humT = d; humCool = t + d + 1.2 }
+    }
     func deny(_ r: Rig) { react = .blocked; reactT = 1.2 }
     func hit(_ pt: CGPoint) -> Bool {
         if state == .approval { return simd_length(P2(pt.x, pt.y) - P2(99, 74)) < 44 }
@@ -655,16 +670,6 @@ final class ZenStage: Staged {
 
         // mouth: a hair off-center and tilted, the way the Tolans wear it
         drawMouth(g, X(2.5), fy + 15, sx, s.mouth == "wavy" && !petting)
-        // concentrating: the tip of the tongue pokes out of the mouth's far corner
-        let tk = clamp(tongue.x, 0, 1)
-        if tk > 0.03 {
-            var m = g; m.translateBy(x: X(2.5), y: fy + 15); m.rotate(by: .radians(-0.09 + mtilt.x)); m.scaleBy(x: sx, y: 1)
-            let cx = mw.x * 0.62, cy = 1.6 + 2 * tk
-            var tip = m; tip.translateBy(x: cx, y: cy); tip.rotate(by: .radians(0.35))
-            tip.fill(Path(ellipseIn: CGRect(x: -3.2 * tk, y: -2.9 * tk, width: 6.4 * tk, height: 5.8 * tk)), with: .color(Self.col(P.tongue)))
-            var shade = m; shade.translateBy(x: cx - 0.2, y: cy - 1.9 * tk); shade.rotate(by: .radians(0.35))
-            shade.fill(Path(ellipseIn: CGRect(x: -2 * tk, y: -0.6 * tk, width: 4 * tk, height: 1.2 * tk)), with: .color(Self.col(P.mouthIn, 0.5)))
-        }
     }
 
     /// One cavity for every mouth, read off Tolan's pose videos frame by frame. A nearly straight top edge with sharp
@@ -759,5 +764,135 @@ final class ZenStage: Staged {
                 g.strokeCircle(q.x, q.y, 10 + u * 22, .white.opacity(0.5 * (1 - u)), 2)
             }
         }
+    }
+}
+
+/// Zen's hum, ported from the playground's Web Audio patch and rendered sample by sample: a soft buzz (harmonics falling
+/// off faster than a sawtooth) through two lowpasses for the closed lips, a boost around 270 Hz for the nasal murmur,
+/// and a little breath. Notes glide legato, each one re-articulated with a small dip ("mm-mm-mmm"), vibrato creeping in
+/// on long notes, and the pitch sagging at the end. Chained phrases stay in one key and never repeat back to back.
+final class Hum {
+    static let shared = Hum()
+
+    private static let rate = 24000.0
+    private static let tunes: [[(Double, Double)]] = [          // (semitones up from the base, beats)
+        [(0, 1), (2, 1), (4, 2.4)],
+        [(4, 1), (2, 1), (0, 1), (2, 2.4)],
+        [(0, 0.7), (4, 0.7), (7, 1.2), (4, 2.2)],
+        [(7, 1), (4, 1), (5, 0.5), (4, 0.5), (2, 2.2)],
+        [(0, 1.4), (-3, 0.8), (0, 2.6)],
+    ]
+    /// One cycle of the buzz: sines at 1/k^1.45, normalized to a peak of 1 like Web Audio's periodic waves.
+    private static let wave: [Float] = {
+        let n = 1024
+        var w = (0..<n).map { i -> Double in
+            let a = Double(i) / Double(n) * 2 * .pi
+            return (1...30).reduce(0) { $0 + sin(Double($1) * a) / pow(Double($1), 1.45) }
+        }
+        let peak = w.map(abs).max()!
+        w = w.map { $0 / peak }
+        return w.map(Float.init)
+    }()
+
+    private var player: AVAudioPlayer?
+    private var base = 0.0, last = -1
+
+    /// Plays one phrase; returns how long it lasts, or 0 if it couldn't play.
+    func play(chain: Bool) -> Double {
+        var pick = Int.random(in: 0..<Self.tunes.count)
+        while pick == last { pick = Int.random(in: 0..<Self.tunes.count) }
+        last = pick
+        if !chain || base == 0 { base = 247 * pow(2, Double.random(in: -2...2) / 12) }
+        let (samples, secs) = render(Self.tunes[pick], base)
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        try? session.setActive(true)
+        guard let p = try? AVAudioPlayer(data: Self.wav(samples)) else { return 0 }
+        player = p
+        return p.play() ? secs : 0
+    }
+
+    /// A biquad (the Audio EQ Cookbook's, as Web Audio builds them).
+    private struct Biquad {
+        var b0 = 0.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0, x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
+        init(lowpass f: Double, qdB: Double) {
+            let w = 2 * .pi * f / Hum.rate, al = sin(w) / (2 * pow(10, qdB / 20)), c = cos(w), a0 = 1 + al
+            b0 = (1 - c) / 2 / a0; b1 = (1 - c) / a0; b2 = b0; a1 = -2 * c / a0; a2 = (1 - al) / a0
+        }
+        init(peaking f: Double, q: Double, gain: Double) {
+            let A = pow(10, gain / 40), w = 2 * .pi * f / Hum.rate, al = sin(w) / (2 * q), c = cos(w), a0 = 1 + al / A
+            b0 = (1 + al * A) / a0; b1 = -2 * c / a0; b2 = (1 - al * A) / a0; a1 = b1; a2 = (1 - al / A) / a0
+        }
+        init(bandpass f: Double, q: Double) {
+            let w = 2 * .pi * f / Hum.rate, al = sin(w) / (2 * q), c = cos(w), a0 = 1 + al
+            b0 = al / a0; b1 = 0; b2 = -al / a0; a1 = -2 * c / a0; a2 = (1 - al) / a0
+        }
+        mutating func run(_ x: Double) -> Double {
+            let y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+            x2 = x1; x1 = x; y2 = y1; y1 = y
+            return y
+        }
+    }
+
+    private func render(_ tune: [(Double, Double)], _ base: Double) -> ([Float], Double) {
+        let beat = 0.19, peak = 0.3, t0 = 0.02
+        // the schedule: pitch targets (time, Hz, glide), the volume's breakpoints, the vibrato's depth targets
+        var pitch: [(Double, Double, Double)] = [], gain: [(Double, Double)] = [(t0, 0)], vib: [(Double, Double)] = []
+        var at = t0
+        for (i, (s, beats)) in tune.enumerated() {
+            let len = beats * beat, f = base * pow(2, s / 12)
+            pitch.append((at, f, 0.035))
+            if i == 0 { gain.append((at + 0.08, peak)) }
+            else { gain.append((at + 0.03, peak * 0.45)); gain.append((at + 0.1, peak)) }
+            gain.append((at + len - 0.02, peak * 0.82))
+            vib.append((at + 0.12, len > 0.3 ? f * 0.009 : 0))
+            at += len
+        }
+        pitch.append((at - 0.16, base * pow(2, tune.last!.0 / 12) * 0.96, 0.08))     // trails off a little flat
+        gain.append((at + 0.16, 0))
+        let end = at + 0.2, n = Int(end * Self.rate)
+
+        var lips = Biquad(lowpass: 850, qdB: 0.6), lips2 = Biquad(lowpass: 1500, qdB: 0.5)
+        var nasal = Biquad(peaking: 270, q: 1.3, gain: 8), breath = Biquad(bandpass: 600, q: 0.7)
+        var f = base * pow(2, tune[0].0 / 12) * 0.97, depth = 0.0, phase = 0.0     // scoop up into the first note
+        var pi = 0, gi = 0, vi = -1, target = f, glide = 0.035, vtarget = 0.0
+        var out = [Float](repeating: 0, count: n), loud = 0.0
+        let dt = 1 / Self.rate, table = Self.wave, tn = Double(table.count)
+        for i in 0..<n {
+            let t = Double(i) * dt
+            while pi < pitch.count && pitch[pi].0 <= t { target = pitch[pi].1; glide = pitch[pi].2; pi += 1 }
+            while vi + 1 < vib.count && vib[vi + 1].0 <= t { vi += 1; vtarget = vib[vi].1 }
+            if pi > 0 { f += (target - f) * (1 - exp(-dt / glide)) }
+            if vi >= 0 { depth += (vtarget - depth) * (1 - exp(-dt / 0.08)) }
+            while gi + 1 < gain.count && gain[gi + 1].0 <= t { gi += 1 }
+            let g: Double
+            if t < t0 { g = 0 } else if gi + 1 < gain.count {
+                let (ta, va) = gain[gi], (tb, vb) = gain[gi + 1]
+                g = va + (vb - va) * (t - ta) / max(tb - ta, 1e-6)
+            } else { g = 0 }
+            phase += (f + depth * sin(2 * .pi * 5.3 * t)) * dt
+            phase -= floor(phase)
+            let buzz = Double(table[Int(phase * tn) % table.count])
+            let voice = lips2.run(lips.run(nasal.run(buzz)))
+            let air = breath.run(Double.random(in: -1...1)) * 0.05
+            let v = (voice + air) * g
+            out[i] = Float(v); loud = max(loud, abs(v))
+        }
+        // the playground peaked at 0.85; level it there whatever the phrase
+        if loud > 0 { let k = Float(0.85 / loud); for i in out.indices { out[i] *= k } }
+        return (out, at + 0.16 - t0 + 0.02)
+    }
+
+    /// 16-bit mono PCM in a WAV header, for AVAudioPlayer.
+    private static func wav(_ s: [Float]) -> Data {
+        var d = Data()
+        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        let r = UInt32(rate), bytes = UInt32(s.count * 2)
+        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + bytes); d.append(contentsOf: Array("WAVEfmt ".utf8))
+        u32(16); u16(1); u16(1); u32(r); u32(r * 2); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(bytes)
+        for x in s { u16(UInt16(bitPattern: Int16(clamp(Double(x), -1, 1) * 32767))) }
+        return d
     }
 }
