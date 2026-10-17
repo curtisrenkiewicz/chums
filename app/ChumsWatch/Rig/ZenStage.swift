@@ -174,7 +174,7 @@ final class ZenStage: Staged {
             sq.v += 1.4
             for i in hair.indices { hair[i].v += rnd(-5, 5) }
         }
-        bits = []; spawn = 0; phrase = 0; sylT = 0; knockT = 0
+        spawn = 0; phrase = 0; sylT = 0; knockT = 0                      // bits in flight finish their arc
     }
 
     func step(_ r: Rig, _ dt0: Double) {
@@ -301,7 +301,8 @@ final class ZenStage: Staged {
         }
 
         // the leaves follow the head through, each on its own spring
-        let hx = headXNow(), vx = (hx - prevHX) / max(dt, 1e-3), ax = (vx - prevVX) / max(dt, 1e-3)
+        // (from the head's turn only: blocked's fast shiver would buzz every leaf; the leaves have their own shiver for that)
+        let hx = Self.headX + yaw.x * 4, vx = (hx - prevHX) / max(dt, 1e-3), ax = (vx - prevVX) / max(dt, 1e-3)
         prevHX = hx; prevVX = vx
         for i in hair.indices {
             let push = -ax * 0.0011 - crown.v * 0.02 - tilt.v * 0.12 - nod.v * 0.05 * Double(i - 3) / 3
@@ -365,7 +366,7 @@ final class ZenStage: Staged {
         case .done:
             for _ in 0..<3 {
                 let a = -Double.pi / 2 + rnd(-1.3, 1.3)
-                bits.append(Bit(kind: 0, x: 99, y: 70, vx: cos(a) * 80, vy: sin(a) * 90 - 20, g: 140, life: 1.3, max: 1.3,
+                bits.append(Bit(kind: 0, x: 99, y: 70 - hopNow() * 11, vx: cos(a) * 80, vy: sin(a) * 90 - 20, g: 140, life: 1.3, max: 1.3,
                                 r: rnd(0, 6), spin: rnd(-4, 4), col: rnd(0, 1) < 0.5 ? P.tip : Self.lift(P.root, 0.1)))
             }
             spawn = 0.3
@@ -432,6 +433,10 @@ final class ZenStage: Staged {
         g.translateBy(x: 0, y: -hopNow() * 11)
 
         let torsoTop = drawTorso(g, breathe)
+        // Tolans have no neck: the body runs straight up behind the ring into the head. This fill is that body, hidden at
+        // rest; when a tilt lifts one side of the head, it's what shows instead of a gap.
+        let nc = 99 + yaw.x * 2.5 + sway() * 0.7
+        g.fill(Path(ellipseIn: CGRect(x: nc - 38, y: 168 + breathe * 0.4 - 20, width: 76, height: 40)), with: .color(Self.col(P.front)))
         let front = [isFront(s.R), isFront(s.L)]
         if st == .subagents { drawSprouts(g, back: true) }
         for i in [1, 0] where !front[i] { drawArm(g, i, torsoTop) }
@@ -502,7 +507,9 @@ final class ZenStage: Staged {
         sh.fill(Path(ellipseIn: CGRect(x: c + 3 - 40, y: y + 15 - 7, width: 80, height: 14)), with: .color(Self.col(P.shade, 0.6)))
         var ring = Path()
         ring.addArc(center: .zero, radius: 1, startAngle: .zero, endAngle: .radians(.pi), clockwise: false)
-        let tube = ring.applying(CGAffineTransform(a: 33, b: 0, c: 0, d: 10, tx: c, ty: y - 6))
+        // it rides with the head's tilt, hugging the chin like the pink Tolan's, so a tilt never opens a gap under it
+        let ra = tilt.x * 0.8
+        let tube = ring.applying(CGAffineTransform(a: 33 * cos(ra), b: 33 * sin(ra), c: -10 * sin(ra), d: 10 * cos(ra), tx: c, ty: y - 6))
         let lit = Gradient(stops: [.init(color: Self.col(P.collarTop), location: 0), .init(color: Self.col(P.collar), location: 0.5),
                                    .init(color: Self.col(P.collarWall), location: 1)])
         let style = StrokeStyle(lineWidth: 24, lineCap: .round)
