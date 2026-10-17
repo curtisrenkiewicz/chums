@@ -8,8 +8,8 @@ import SwiftUI
 /// tongue → teeth).
 ///   idle: a slow layered roll, eyes dart and the head follows, a content squint now and then, and sometimes the mouth
 ///   eases into a big open smile · listening: leans in, brows up, a small O that opens with your voice · thinking: eyes
-///   up and to the right, one brow up, a hand to the chin, three dots · working: head down, scribbling in a little journal,
-///   the page turning at each tool call · subagents: three sprouts orbit its head and it watches them · speaking: syllables (A E O U
+///   up and to the right, one brow up, a hand to the chin, three dots · working: head down, eyes reading across a line in little
+///   hops, brows knit, the tip of its tongue out in concentration, a glance up at you at each tool call · subagents: three sprouts orbit its head and it watches them · speaking: syllables (A E O U
 ///   M) while the voice plays, a hand gesturing with it · done: happy eyes, the D smile with teeth, a wave, leaves fly
 ///   · needs you: worried brows, a knock on the glass · approval: shrinks up out of the card's way, looks at you
 ///   hopefully, hands clasped · blocked: cross brows, a grimace, arms crossed, the leaves stiffen and shiver · dizzy:
@@ -59,7 +59,7 @@ final class ZenStage: Staged {
     // ends up (worried), − down (cross) · browR: extra raise on the right brow · lid: upper lid closed · spread, droop,
     // stiff: the leaves
     private enum Eyes { case open, happy, closed, spiral }
-    private enum Arm { case hang, chin, type, conduct, gesture, wave, knock, clasp, cross, flop }
+    private enum Arm { case hang, chin, conduct, gesture, wave, knock, clasp, cross, flop }
     private struct Spec {
         var yaw = 0.0, pitch = 0.0, tilt = 0.0, lean = 1.0, brow = 0.0, browA = 0.0, browR = 0.0
         var lookX = 0.0, lookY = 0.0, lid = 0.0, spread = 1.0, droop = 0.0, stiff = 0.0, blush = 1.0
@@ -70,7 +70,7 @@ final class ZenStage: Staged {
         case .idle: return Spec()
         case .listening: return Spec(pitch: -0.12, tilt: 0.13, lean: 1.07, brow: 0.6, browA: 0.15, lookY: -0.15, spread: 1.25, mouth: "o")
         case .thinking: return Spec(yaw: 0.3, pitch: -0.25, tilt: -0.1, brow: 0.15, browR: 0.65, lookX: 0.85, lookY: -0.9, spread: 0.92, mouth: "hmm", R: .chin)
-        case .working: return Spec(yaw: -0.08, pitch: 0.5, brow: -0.15, browA: -0.2, lookY: 0.95, lid: 0.28, mouth: "flat", R: .type, L: .type)
+        case .working: return Spec(yaw: -0.06, pitch: 0.32, brow: -0.3, browA: -0.6, lookY: 0.55, lid: 0.32, spread: 0.95, mouth: "focus")
         case .subagents: return Spec(pitch: -0.05, brow: 0.45, R: .conduct)
         case .speaking: return Spec(brow: 0.25, mouth: "talk", R: .gesture)
         case .done: return Spec(brow: 0.7, spread: 1.35, blush: 1.3, eyes: .happy, mouth: "D", R: .wave)
@@ -93,6 +93,7 @@ final class ZenStage: Staged {
         "o": Mouth(w: 3.4, open: 0.55, round: 1),
         "hmm": Mouth(w: 4.6, open: 0.05, smile: -0.4, tilt: 0.3),
         "flat": Mouth(w: 5, open: 0.05, smile: 0.1),
+        "focus": Mouth(w: 4.2, open: 0.04, smile: 0.25, tilt: -0.12),   // pressed together, the tongue tip out of the corner
         "D": Mouth(w: 9.5, open: 1, smile: 1, teeth: 1),
         "grit": Mouth(w: 7.5, open: 0.4, smile: -1.2, teeth: 1),
         "sleep": Mouth(w: 3.4, open: 0.32, round: 0.55, tilt: 0.15),
@@ -141,7 +142,7 @@ final class ZenStage: Staged {
     private var gaze: P2? = nil, gazeT = 0.0, taps: [Double] = []
     private var fastFor = 0.0, crownIdle = 9.0, nextTool = 0.8, knockT = 0.0
     private var prevHX = 99.0, prevVX = 0.0
-    private var ink = 0.0, flipT = 0.0                         // the journal: how far the writing has got, a page turning
+    private var upT = 0.0, tongue = S(0)                       // working: glancing up at a tool call; the tongue tip
     private var away = S(0), down = S(0)                      // shrunk up out of the approval card's way; lowered for the talk bar
     private var state: ChumsState = .idle, started = false
     private var t = 0.0
@@ -220,6 +221,13 @@ final class ZenStage: Staged {
         }
         browPop *= exp(-dt * 3)
         if st == .dizzy { ty = 0.5 * sin(t * 4); tt = 0.22 * cos(t * 4); tp = 0.1 * sin(t * 8) }
+        // reading: the eyes hop across a line in little jumps, then snap back to the next; a tool call, a glance up at you
+        upT -= dt
+        if st == .working {
+            let ph = (t * 0.45).truncatingRemainder(dividingBy: 1), hop = floor(ph * 5), line = floor(t * 0.45).truncatingRemainder(dividingBy: 3)
+            lx = -0.65 + hop * 0.3; ly = 0.5 + line * 0.08; ty += (hop - 2) * 0.025
+            if upT > 0 { lx = 0; ly = -0.35; tp -= 0.15 }
+        }
         if st == .subagents { let a = t * 0.9; lx = cos(a) * 0.9; ly = sin(a) * 0.4 - 0.2; ty = cos(a) * 0.25 }
         if st == .needs {
             let was = knockT; knockT += dt; if knockT >= 3.2 { knockT = 0 }
@@ -237,21 +245,21 @@ final class ZenStage: Staged {
             nextTool = r.worlds.queue.isEmpty ? rnd(1.4, 2.4) : 0.5
             if c.kind != .stop {
                 nod.v += 3.2; blinkT = 0.16; for i in hair.indices { hair[i].v += rnd(-2.4, 5.6) }
-                if state == .working { flipT = 0.4 }
+                if state == .working { upT = 0.55 }
             }
         }
-        // the journal: ink runs along the lines; a full page (or a tool call) turns over
-        if st == .working { ink += flipT > 0 ? 0 : dt * 0.55; if ink >= 4 && flipT <= 0 { flipT = 0.4 } }
-        if flipT > 0 { flipT -= dt; if flipT <= 0 { flipT = 0; ink = 0 } }
+
 
         // the pose's springs: eyes fast, the head slower and looser
         let bl = petting || squint ? 1.5 : s.blush
         for (v, tgt) in [(\ZenStage.lookX, lx), (\ZenStage.lookY, ly)] { self[keyPath: v].to(tgt, 260, 0.8, dt) }
         for (v, tgt) in [(\ZenStage.yaw, ty + crown.x), (\ZenStage.pitch, tp), (\ZenStage.tilt, tt)] { self[keyPath: v].to(tgt, 42, 0.62, dt) }
+        let glancing = st == .working && upT > 0              // glancing up: eyes open, brows pop
         let rest: [(ReferenceWritableKeyPath<ZenStage, S>, Double)] = [
-            (\.lean, s.lean), (\.brow, s.brow), (\.browA, s.browA), (\.browR, s.browR), (\.lid, s.lid),
+            (\.lean, s.lean), (\.brow, glancing ? 0.35 : s.brow), (\.browA, glancing ? 0 : s.browA), (\.browR, s.browR), (\.lid, glancing ? 0 : s.lid),
             (\.spread, s.spread), (\.droop, s.droop), (\.stiff, s.stiff), (\.blush, bl)]
         for (v, tgt) in rest { self[keyPath: v].to(tgt, 90, 0.8, dt) }
+        tongue.to(st == .working && !glancing && !petting ? 1 : 0, 120, 0.7, dt)
 
         // mouth: fast springs while talking so syllables land; expressions ease over about half a second, like Tolan's
         var m: Mouth
@@ -335,7 +343,6 @@ final class ZenStage: Staged {
         let c = 99.0
         switch pose {
         case .chin: return P2(c + 12, 176)
-        case .type: return sg < 0 ? P2(c - 47, 226) : pen() + P2(8, -12)   // the left mitt holds the journal, the right one writes
         case .conduct: return P2(c + 52, 158 + 14 * sin(t * 3))
         case .gesture: return P2(c + 46 + 6 * sin(t * 1.7), 206 - 22 * clamp(mopen.x, 0, 1))
         case .wave: let a = 0.5 * sin(t * 7); return P2(c + 60 + 30 * sin(a), 118 + 8 * (1 - cos(a)))   // swings from the elbow
@@ -426,9 +433,7 @@ final class ZenStage: Staged {
         h.fill(superellipse(hx, hy, Self.headW, Self.headH, 2.15), with: .color(Self.col(P.front)))   // the face: one flat color
         drawFace(h, hx, hy, s, petting)
 
-        if s.R == .type { drawJournal(g) }
         for i in [1, 0] where front[i] { drawArm(g, i, torsoTop) }
-        if s.R == .type { drawPencil(g) }
         if st == .subagents { drawSprouts(g, back: false) }
         drawBits(ctx, st)
     }
@@ -646,6 +651,16 @@ final class ZenStage: Staged {
 
         // mouth: a hair off-center and tilted, the way the Tolans wear it
         drawMouth(g, X(2.5), fy + 15, sx, s.mouth == "wavy" && !petting)
+        // concentrating: the tip of the tongue pokes out of the mouth's far corner
+        let tk = clamp(tongue.x, 0, 1)
+        if tk > 0.03 {
+            var m = g; m.translateBy(x: X(2.5), y: fy + 15); m.rotate(by: .radians(-0.09 + mtilt.x)); m.scaleBy(x: sx, y: 1)
+            let cx = mw.x * 0.62, cy = 1.6 + 2 * tk
+            var tip = m; tip.translateBy(x: cx, y: cy); tip.rotate(by: .radians(0.35))
+            tip.fill(Path(ellipseIn: CGRect(x: -3.2 * tk, y: -2.9 * tk, width: 6.4 * tk, height: 5.8 * tk)), with: .color(Self.col(P.tongue)))
+            var shade = m; shade.translateBy(x: cx - 0.2, y: cy - 1.9 * tk); shade.rotate(by: .radians(0.35))
+            shade.fill(Path(ellipseIn: CGRect(x: -2 * tk, y: -0.6 * tk, width: 4 * tk, height: 1.2 * tk)), with: .color(Self.col(P.mouthIn, 0.5)))
+        }
     }
 
     /// One cavity for every mouth, read off Tolan's pose videos frame by frame. A nearly straight top edge with sharp
@@ -692,71 +707,6 @@ final class ZenStage: Staged {
         }
     }
     private func smoothstep(_ a: Double, _ b: Double, _ v: Double) -> Double { let x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x) }
-
-    // The journal: an open notebook held up to the chest, a terracotta cover with its own thin rim, cream pages that
-    // only deepen toward the spine (light subtracts), scribbled lines filling in under the pencil.
-    private var journalC: Double { 99 + sway() * 0.6 }
-    private static let journalY = 200.0, pageW = 38.0, pageH = 36.0
-    /// Where the pencil's tip is on the right-hand page.
-    private func pen() -> P2 {
-        let line = min(3, floor(ink)), k = ink - floor(ink)
-        return P2(journalC + 6 + k * (Self.pageW - 12), Self.journalY + 9 + line * 7 + sin(t * 22) * 0.8)
-    }
-    private func drawJournal(_ g: GraphicsContext) {
-        let c = journalC, y = Self.journalY, pw = Self.pageW, ph = Self.pageH
-        let cover = RGB(224, 122, 79), coverWall = RGB(182, 82, 52), page = RGB(255, 246, 230), spine = RGB(236, 214, 186)
-        let inkColor = Self.col(Self.mix(P.iris, page, 0.35))
-        var sh = g; sh.addFilter(.blur(radius: 1.5))
-        sh.fill(Path(roundedRect: CGRect(x: c - pw - 4 + 3, y: y - 3 + 4, width: 2 * pw + 8, height: ph + 8), cornerRadius: 6), with: .color(Self.col(P.shade, 0.55)))
-        g.fill(Path(roundedRect: CGRect(x: c - pw - 4 + 1.2, y: y - 3 + 2.5, width: 2 * pw + 8, height: ph + 8), cornerRadius: 6), with: .color(Self.col(coverWall)))
-        g.fill(Path(roundedRect: CGRect(x: c - pw - 4, y: y - 3, width: 2 * pw + 8, height: ph + 8), cornerRadius: 6), with: .color(Self.col(cover)))
-        func sheet(_ dir: Double) -> Path {                     // a page that bows a little toward its outer edge
-            var p = Path()
-            p.move(to: CGPoint(x: c, y: y + 1.5))
-            p.addQuadCurve(to: CGPoint(x: c + dir * pw, y: y), control: CGPoint(x: c + dir * pw * 0.5, y: y - 1.5))
-            p.addLine(to: CGPoint(x: c + dir * pw, y: y + ph))
-            p.addQuadCurve(to: CGPoint(x: c, y: y + ph + 1.5), control: CGPoint(x: c + dir * pw * 0.5, y: y + ph - 1.5))
-            p.closeSubpath(); return p
-        }
-        func shading(_ dir: Double) -> GraphicsContext.Shading {
-            .linearGradient(Gradient(stops: [.init(color: Self.col(spine), location: 0), .init(color: Self.col(page), location: 0.22),
-                                              .init(color: Self.col(page), location: 1)]),
-                            startPoint: CGPoint(x: c, y: 0), endPoint: CGPoint(x: c + dir * pw, y: 0))
-        }
-        g.fill(sheet(-1), with: shading(-1)); g.fill(sheet(1), with: shading(1))
-        // what's written: the left page is full, the right one fills in under the pencil
-        func scrib(_ x0: Double, _ x1: Double, _ yy: Double, _ seed: Double) {
-            var p = Path(); p.move(to: CGPoint(x: x0, y: yy))
-            var x = x0
-            while x <= x1 { p.addLine(to: CGPoint(x: x, y: yy + sin(x * 1.3 + seed) * 0.9)); x += 2 }
-            g.stroke(p, with: .color(inkColor), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-        }
-        for l in 0..<4 { let d = Double(l); scrib(c - pw + 6, c - 6 - (l == 3 ? 12 : 0), y + 9 + d * 7, d * 2) }
-        let written = flipT > 0 ? 0 : ink
-        for l in 0..<4 {
-            let d = Double(l), k = clamp(written - d, 0, 1)
-            if k > 0.02 { scrib(c + 6, c + 6 + k * (pw - 12), y + 9 + d * 7, d * 3 + 1) }
-        }
-        // a tool call: the right page turns over onto the left
-        if flipT > 0 {
-            let u = 1 - flipT / 0.4
-            var f = g.faded(0.95); f.translateBy(x: c, y: 0); f.scaleBy(x: cos(u * .pi), y: 1); f.translateBy(x: -c, y: 0)
-            f.fill(sheet(1), with: shading(1))
-        }
-    }
-
-    /// The pencil, gripped in the right mitt: drawn over it, the tip on the page.
-    private func drawPencil(_ g: GraphicsContext) {
-        let tip = pen()
-        var c = g; c.translateBy(x: tip.x, y: tip.y); c.rotate(by: .radians(atan2(-20, 13)))
-        var lead = Path(); lead.move(to: .zero); lead.addLine(to: CGPoint(x: 4.5, y: -2.4)); lead.addLine(to: CGPoint(x: 4.5, y: 2.4)); lead.closeSubpath()
-        c.fill(lead, with: .color(Color(hex: 0x3A3A3A)))
-        var wood = Path(); wood.move(to: CGPoint(x: 2, y: -1.1)); wood.addLine(to: CGPoint(x: 6, y: -2.6)); wood.addLine(to: CGPoint(x: 6, y: 2.6)); wood.addLine(to: CGPoint(x: 2, y: 1.1)); wood.closeSubpath()
-        c.fill(wood, with: .color(Color(hex: 0xF7D9A8)))
-        c.fillRect(6, -2.6, 17, 5.2, Color(hex: 0xFFC83A))
-        c.fillRect(6, 0.9, 17, 1.7, Color(hex: 0xF3911A))              // its side, away from the light
-        c.fill(Path(roundedRect: CGRect(x: 23, y: -2.6, width: 4.5, height: 5.2), cornerSize: CGSize(width: 2, height: 2)), with: .color(Color(hex: 0xFF8FA3)))   // eraser
-    }
 
     /// Little helpers orbiting the head: the ones on the far side of the orbit pass behind it.
     private func drawSprouts(_ g: GraphicsContext, back: Bool) {
