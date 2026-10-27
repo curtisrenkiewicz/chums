@@ -461,7 +461,7 @@ struct SettingsView: View {
             Section {
                 Toggle("Keyring: stay on", isOn: Binding(get: { keepOn.enabled }, set: { keepOn.enabled = $0 }))
             } footer: {
-                Text(keepOn.problem ?? "Keeps this app running, so a tap on the dark screen lands here and a touch held as it wakes talks. Off the wrist, also turn off Wrist Detection in Settings › Passcode. For the screen to stay lit longer after a tap: Settings › Display & Brightness › Wake Duration › Wake for 70 Seconds.")
+                Text(keepOn.problem ?? "Uses a lot of battery. Keeps this app running, so a tap on the dark screen lands here and a touch held as it wakes talks. Off the wrist, also turn off Wrist Detection in Settings › Passcode. For the screen to stay lit longer after a tap: Settings › Display & Brightness › Wake Duration › Wake for 70 Seconds.")
             }
             Section {
                 Toggle("Demo: play every state", isOn: $demo)

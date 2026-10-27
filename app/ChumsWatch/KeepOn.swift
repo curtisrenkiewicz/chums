@@ -12,7 +12,9 @@ import WatchKit
 /// Off the wrist, also turn off Wrist Detection (Settings › Passcode), or the watch locks and hides Chums.
 @MainActor @Observable
 final class KeepOn: NSObject {
-    static let key = "keyring"
+    /// Off unless turned on in Settings: a workout session running all day costs about 13% battery an hour (~/.chums/watch-battery.csv).
+    /// A new key, so watches that had it on by the old default start with it off.
+    static let key = "keyring.optIn"
     static let shared = KeepOn()
     private(set) var running = false
     private(set) var problem: String?
@@ -25,7 +27,7 @@ final class KeepOn: NSObject {
     private var yielded = false
 
     var enabled: Bool {
-        get { UserDefaults.standard.object(forKey: Self.key) as? Bool ?? true }
+        get { UserDefaults.standard.bool(forKey: Self.key) }
         set { UserDefaults.standard.set(newValue, forKey: Self.key); Task { newValue ? await start() : stop() } }
     }
 
@@ -66,7 +68,10 @@ final class KeepOn: NSObject {
     func recover() async {
         starting = true; defer { starting = false }          // start() waits while the old session is taken back
         do {
-            if let s = try await store.recoverActiveWorkoutSession() { begin(s); running = s.state == .running; onEvent?("keyring recovered after relaunch") }
+            guard let s = try await store.recoverActiveWorkoutSession() else { return }
+            // a session left running from before keyring mode was turned off (or off by default): end it, don't keep it
+            if !enabled { s.end(); onEvent?("keyring off: ended the session left running"); return }
+            begin(s); running = s.state == .running; onEvent?("keyring recovered after relaunch")
         } catch { onEvent?("keyring recovery failed: \(error.localizedDescription)") }
     }
 
